@@ -11,7 +11,7 @@ module.exports = {
     host: process.env.DB_HOST || "localhost",
     ...(USE_PORT ? { port: Number(process.env.DB_PORT) || 3306 } : {}),
     user: process.env.DB_USER || "ACDV_Teams",
-    password: process.env.DB_PASSWORD || "keyadminkali@Xy[",
+    password: process.env.DB_PASSWORD || "",
     database: process.env.DB_NAME || "ACDV_Teams",
     connectionLimit: 10,
     acquireTimeout: 10000,
