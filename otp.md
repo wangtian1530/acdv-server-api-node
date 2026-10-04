@@ -2,7 +2,7 @@
 
 ### Request OTP (cần password)
 
-**`POST /api/otp/request`** 🔒
+**`POST /otp/request`** 🔒
 
 ```json
 {
@@ -29,7 +29,7 @@
 
 ### Verify OTP (dùng temp token, KHÔNG cần login)
 
-**`POST /api/otp/verify`**
+**`POST /otp/verify`**
 
 ```json
 {
@@ -53,7 +53,7 @@
 
 ### Ẩn project
 
-**`POST /api/projects/:id/hide`** 🔒 (admin only)
+**`POST /projects/:id/hide`** 🔒 (admin only)
 
 **Response 200:**
 ```json
@@ -67,11 +67,11 @@
 
 ### Bỏ ẩn
 
-**`POST /api/projects/:id/unhide`** 🔒 (admin only)
+**`POST /projects/:id/unhide`** 🔒 (admin only)
 
 ### Ẩn comment (chủ project hoặc admin)
 
-**`POST /api/comments/:id/hide`** 🔒
+**`POST /comments/:id/hide`** 🔒
 
 **Response 200:**
 ```json
@@ -87,7 +87,7 @@
 
 ## 🚫 User không xóa được chính mình
 
-**`DELETE /api/users/me`** 🔒
+**`DELETE /users/me`** 🔒
 
 **Response 403:**
 ```json
@@ -101,7 +101,7 @@
 
 ## 🔄 Update comment (chỉ tác giả)
 
-**`PUT /api/comments/:id`** 🔒
+**`PUT /comments/:id`** 🔒
 
 ```json
 {

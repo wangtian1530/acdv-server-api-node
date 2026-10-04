@@ -33,7 +33,7 @@ Verify OTP (token)  │   ✅  │   ✅  │   ✅  │   ✅  │
 ```
 User                          Server
  │                              │
- │  POST /api/otp/request       │
+ │  POST /otp/request           │
  │  { password: "..." }         │
  │─────────────────────────────►│
  │                              │ 1. verifyPassword(userId, password)
@@ -47,7 +47,7 @@ User                          Server
  │                              │
  │  (thực tế: OTP gửi qua SMS)  │
  │                              │
- │  POST /api/otp/verify        │
+ │  POST /otp/verify            │
  │  { token, otp }              │
  │─────────────────────────────►│
  │                              │ 1. SELECT ... WHERE token=? AND OTP=? AND active=1

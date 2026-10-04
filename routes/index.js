@@ -73,53 +73,53 @@ function makeHandlers({ db, security, secured, handleWith }) {
         admin: "Chỉ ẨN (hide) — không có quyền XÓA",
         otp: "Request cần password → sinh temp token riêng",
         project: "Chỉ chủ sở hữu được SỬA/XÓA. Admin chỉ ẩn.",
-        comment: "Author sửa/xóa. Chủ project chỉ ẩn.",
+        comment: "Author sửa/xóa. Chủ project chỉ getUserẩn.",
       },
       endpoints: {
         AUTH: [
-          "POST /api/auth/login   (body: { username|email, password })",
-          "POST /api/auth/logout  (header X-Session-Token)",
-          "GET  /api/auth/me      🔒",
+          "POST /auth/login   (body: { username|email, password })",
+          "POST /auth/logout  (header X-Session-Token)",
+          "GET  /auth/me      🔒",
         ],
         USER: [
-          "GET /api/users/me  🔒",
-          "PUT /api/users/me  🔒 (body: { username?, password?, avatar?, email?, token?, active? })",
-          "POST /api/users    (đăng ký, public — key_table server tự sinh)",
-          "❌ DELETE /api/users/me  → 403 (tạm khóa)",
+          "GET /users/me  🔒",
+          "PUT /users/me  🔒 (body: { username?, password?, avatar?, email?, token?, active? })",
+          "POST /users    (đăng ký, public — key_table server tự sinh)",
+          "❌ DELETE /users/me  → 403 (tạm khóa)",
           "❌ Xem user khác → KHÔNG CÓ ROUTE",
         ],
         PROFILE: [
-          "GET /api/profiles/me  🔒",
-          "PUT /api/profiles/me  🔒 (upsert — luôn UPDATE, không xóa)",
+          "GET /profiles/me  🔒",
+          "PUT /profiles/me  🔒 (upsert — luôn UPDATE, không xóa)",
         ],
         PROJECT: [
-          "GET    /api/projects?page=&limit=&q=&status=",
-          "GET    /api/projects/me    🔒 (kể cả hidden)",
-          "GET    /api/projects/:id",
-          "POST   /api/projects       🔒",
-          "PUT    /api/projects/:id   🔒 (owner only)",
-          "DELETE /api/projects/:id   🔒 (owner only, HARD)",
-          "POST   /api/projects/:id/hide     🔒 (admin only — SOFT)",
-          "POST   /api/projects/:id/unhide   🔒 (admin only)",
+          "GET    /projects?page=&limit=&q=&status=",
+          "GET    /projects/me    🔒 (kể cả hidden)",
+          "GET    /projects/:id",
+          "POST   /projects       🔒",
+          "PUT    /projects/:id   🔒 (owner only)",
+          "DELETE /projects/:id   🔒 (owner only, HARD)",
+          "POST   /projects/:id/hide     🔒 (admin only — SOFT)",
+          "POST   /projects/:id/unhide   🔒 (admin only)",
         ],
         COMMENT: [
-          "GET    /api/projects/:id/comments",
-          "POST   /api/projects/:id/comments  🔒",
-          "PUT    /api/comments/:id           🔒 (author only)",
-          "DELETE /api/comments/:id           🔒 (author only, HARD)",
-          "POST   /api/comments/:id/hide      🔒 (project owner hoặc admin)",
-          "POST   /api/comments/:id/unhide    🔒 (project owner hoặc admin)",
+          "GET    /projects/:id/comments",
+          "POST   /projects/:id/comments  🔒",
+          "PUT    /comments/:id           🔒 (author only)",
+          "DELETE /comments/:id           🔒 (author only, HARD)",
+          "POST   /comments/:id/hide      🔒 (project owner hoặc admin)",
+          "POST   /comments/:id/unhide    🔒 (project owner hoặc admin)",
         ],
         OTP: [
-          "POST /api/otp/request  🔒 (body: { password })  ← cần password",
-          "POST /api/otp/verify   (body: { token, otp })   ← dùng temp token, không cần login",
-          "GET  /api/otp/me       🔒",
-          "DELETE /api/otp/:id    🔒 (owner only)",
+          "POST /otp/request  🔒 (body: { password })  ← cần password",
+          "POST /otp/verify   (body: { token, otp })   ← dùng temp token, không cần login",
+          "GET  /otp/me       🔒",
+          "DELETE /otp/:id    🔒 (owner only)",
         ],
         MISC: [
           "GET /", "GET /health",
-          "GET /api/xxxx/hello", "GET /api/xxxx/echo/:msg",
-          "GET /api/admin 🔒 (admin only)",
+          "GET /xxxx/hello", "GET /xxxx/echo/:msg",
+          "GET /admin 🔒 (admin only)",
         ],
       },
     }),
@@ -131,9 +131,93 @@ function makeHandlers({ db, security, secured, handleWith }) {
     /* ---------- USER ---------- */
     createUser: async ({ body }) => {
       try {
-        const { key_table: _drop, ...safe } = body || {};
-        const user = await db.createUser(safe);
-        return ok({ message: "Đăng ký thành công", data: user }, 201);
+        const payload = body || {};
+        const { otp, token, key_table: _drop, ...safe } = payload;
+
+        if (!otp || !token) {
+          return err("Đăng ký cần xác minh OTP qua email. Gửi otp + token từ /auth/register/request", 400);
+        }
+
+        const verified = await db.verifyOTPByToken(token, otp);
+        if (!verified.ok) return err(verified.message || "OTP không hợp lệ", 400);
+
+        const otpRow = await db.getOTPInternal(verified.id);
+        if (!otpRow) return err("Không tìm thấy mã OTP hợp lệ", 400);
+
+        const pendingUser = await db.getUserByKeyTable(otpRow.key_table);
+        if (!pendingUser) return err("Không tìm thấy tài khoản chờ kích hoạt", 404);
+        if (String(pendingUser.email || "").toLowerCase() !== String(safe.email || "").toLowerCase()) {
+          return err("Email không khớp với mã OTP", 400);
+        }
+
+        const user = await db.updateUser(pendingUser.id, {
+          username: safe.username ?? pendingUser.username,
+          password: safe.password ?? pendingUser.password,
+          email: safe.email ?? pendingUser.email,
+          avatar: safe.avatar ?? pendingUser.avatar,
+          active: "1",
+          token: "None",
+        });
+
+        return ok({ message: "Đăng ký thành công — email đã được xác minh", data: user }, 201);
+      } catch (e) { return err(e.message, 400); }
+    },
+
+    requestRegisterOTP: async ({ body }) => {
+      try {
+        const { username, password, email } = body || {};
+        if (!username || !password || !email) {
+          return err("Thiếu username, password hoặc email", 400);
+        }
+
+        const existingUser = await db.getUserByUsername(username).catch(() => null);
+        if (existingUser) return err("Username đã tồn tại", 409);
+
+        const byEmail = await db.getUserByEmail(email).catch(() => null);
+        if (byEmail && byEmail.active === "1") return err("Email đã tồn tại", 409);
+
+        const user = byEmail && byEmail.active === "0"
+          ? byEmail
+          : await db.createUser({ username, password, email, avatar: "None", token: "None", active: "0" });
+
+        const result = await db.requestOTP(user.id, password, config.security.otpTtlMs || 5 * 60 * 1000);
+        return ok({
+          message: "OTP xác minh email đã được gửi. Mã có hiệu lực 5 phút.",
+          data: {
+            user_id: user.id,
+            email,
+            otp: result.otp,
+            token: result.token,
+            expires_in: result.expiresIn,
+          },
+        }, 201);
+      } catch (e) { return err(e.message, 400); }
+    },
+
+    verifyRegisterOTP: async ({ body }) => {
+      try {
+        const { email, token, otp } = body || {};
+        if (!email || !token || !otp) {
+          return err("Thiếu email, token hoặc otp", 400);
+        }
+
+        const verified = await db.verifyOTPByToken(token, otp);
+        if (!verified.ok) return err(verified.message || "OTP không hợp lệ", 400);
+
+        const otpRow = await db.getOTPInternal(verified.id);
+        if (!otpRow) return err("Không tìm thấy OTP hợp lệ", 400);
+
+        const user = await db.getUserByKeyTable(otpRow.key_table);
+        if (!user) return err("Tài khoản chờ kích hoạt không tồn tại", 404);
+        if (String(user.email || "").toLowerCase() !== String(email).toLowerCase()) {
+          return err("Email không khớp với mã OTP", 400);
+        }
+
+        const updated = await db.updateUser(user.id, { active: "1", token: "None" });
+        return ok({
+          message: "Xác minh email thành công. Bạn có thể đăng nhập ngay.",
+          data: updated,
+        });
       } catch (e) { return err(e.message, 400); }
     },
 
@@ -501,7 +585,7 @@ function buildRouter({ security, db, requireAuth }) {
   const h = makeHandlers({ db, security, secured, handleWith });
 
   const routers = {
-    rou: "/api/",
+    rou: "",
     data: {
       GET: [
         { path: "",                   handler: h.home },
@@ -535,6 +619,8 @@ function buildRouter({ security, db, requireAuth }) {
         // AUTH
         { path: "auth/login",              handler: h.login },
         { path: "auth/logout",             handler: h.logout },
+        { path: "auth/register/request",   handler: h.requestRegisterOTP },
+        { path: "auth/register/verify",    handler: h.verifyRegisterOTP },
 
         // USER đăng ký
         { path: "users",                   handler: h.createUser },

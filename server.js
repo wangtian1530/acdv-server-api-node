@@ -66,6 +66,17 @@ function parseQuery(url) {
   return out;
 }
 
+function summarizeBody(body) {
+  if (!body || typeof body !== "object") return {};
+  const redactedKeys = new Set(["password", "otp", "token", "secret", "authorization"]);
+  return Object.fromEntries(
+    Object.entries(body).map(([k, v]) => [
+      k,
+      redactedKeys.has(k) ? "[hidden]" : (typeof v === "object" ? "[object]" : String(v)),
+    ])
+  );
+}
+
 // ============================================================
 // DATABASE — tự động chọn MariaDB / In-Memory
 // ============================================================
@@ -135,10 +146,15 @@ const server = http.createServer(async (req, res) => {
     method: req.method,
   };
 
+  console.log(
+    `[${new Date().toISOString()}] ${req.method} ${pathOnly} query=${JSON.stringify(query)} body=${JSON.stringify(summarizeBody(body))}`
+  );
+
   // ---------- SECURITY GATE ----------
   try {
     const blocked = await securityMiddleware(ctx);
     if (blocked) {
+      console.log(`[${new Date().toISOString()}] ${req.method} ${pathOnly} => blocked ${blocked.status}`);
       return sendJSON(res, blocked.status, blocked.data);
     }
   } catch (err) {
@@ -152,6 +168,7 @@ const server = http.createServer(async (req, res) => {
   // ---------- ROUTER ----------
   try {
     const { status, data } = await router.handle(ctx);
+    console.log(`[${new Date().toISOString()}] ${req.method} ${pathOnly} => ${status || 200}`);
     sendJSON(res, status || 200, data);
   } catch (err) {
     console.error("[ROUTER] error:", err);

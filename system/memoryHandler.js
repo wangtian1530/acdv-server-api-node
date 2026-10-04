@@ -93,6 +93,11 @@ class MemoryHandler {
     const found = this.users.find((x) => x.username === u);
     return publicUser(found ? { ...found } : null);
   }
+  async getUserByEmail(email) {
+    const e = assertSafeString(email, "email", { min: 1, max: 50 });
+    const found = this.users.find((x) => x.email === e);
+    return found ? { ...found } : null;
+  }
   async getUserByKeyTable(key_table) {
     const k = assertKeyTable(key_table);
     const u = this.users.find((x) => x.key_table === k);
@@ -143,7 +148,7 @@ class MemoryHandler {
   async verifyLogin(identifier, password) {
     const id = assertSafeString(identifier, "identifier", { min: 1, max: 50 });
     const h = sha256(assertSafeString(password, "password", { min: 1, max: 255 }));
-    const u = this.users.find((x) => (x.username === id || x.email === id) && x.password === h);
+    const u = this.users.find((x) => (x.username === id || x.email === id) && x.password === h && String(x.active) === "1");
     return publicUser(u ? { ...u } : null);
   }
 
@@ -372,6 +377,13 @@ class MemoryHandler {
     const o = assertSafeString(otp, "otp", { min: 1, max: 2 });
     const found = [...this.otps].reverse().find((x) => x.token === t && x.OTP === o && x.active === 1);
     if (!found) return { ok: false, message: "OTP hoặc token không hợp lệ / đã dùng" };
+
+    const createdAt = new Date(found.CreatDateTimes || Date.now());
+    if (Date.now() - createdAt.getTime() > 5 * 60 * 1000) {
+      found.active = 0;
+      return { ok: false, message: "OTP đã hết hạn sau 5 phút" };
+    }
+
     found.active = 0;
     return { ok: true, id: found.id };
   }

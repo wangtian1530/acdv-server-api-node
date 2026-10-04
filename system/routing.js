@@ -5,9 +5,9 @@
  * HanderRouting - Router cho HTTP server thuần Node.js
  * Hỗ trợ:
  *  - Đăng ký route: add / get / post / put / delete / patch / register
- *  - Path params: /api/users/:id
+ *  - Path params: /users/:id
  *  - Handler async (trả Promise)
- *  - Prefix khi khởi tạo: new HanderRouting("/api/users")
+ *  - Prefix khi khởi tạo: new HanderRouting("/users")
  *  - group(path, callback): nhóm route con
  *  - use(subRouter): gắn router con vào router cha
  *  - Trả về { status, data } giống format trong server.js
@@ -67,7 +67,7 @@ class HanderRouting {
   }
 
   /**
-   * Nhóm route con: group("/api/xxxx", (r) => { r.get("/hello", ...) })
+   * Nhóm route con: group("/xxxx", (r) => { r.get("/hello", ...) })
    * - `r` là router con có prefix = prefix cha + path nhóm
    */
   group(path, callback) {

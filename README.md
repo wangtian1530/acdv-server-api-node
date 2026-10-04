@@ -10,8 +10,8 @@
 
 ### 🎯 Quy tắc cốt lõi
 
-1. **Không có route xem user khác** — chỉ `/api/users/me`.
-2. **Không xóa được user** — `DELETE /api/users/me` luôn 403.
+1. **Không có route xem user khác** — chỉ `/users/me`.
+2. **Không xóa được user** — `DELETE /users/me` luôn 403.
 3. **Profile luôn UPDATE**, không bao giờ xóa.
 4. **Project** — chủ sở hữu có quyền SỬA/XÓA. Admin **chỉ ẨN**.
 5. **Comment** — author sửa/xóa. Chủ project **chỉ ẨN** comment của người khác trong project của mình.
@@ -22,41 +22,41 @@
 
 ```
 AUTH
-  POST   /api/auth/login
-  POST   /api/auth/logout
-  GET    /api/auth/me 🔒
+  POST   /auth/login
+  POST   /auth/logout
+  GET    /auth/me 🔒
 
 USER  (chỉ /me)
-  GET    /api/users/me 🔒
-  PUT    /api/users/me 🔒
-  POST   /api/users                     (đăng ký — public)
-  DELETE /api/users/me 🔒               → 403
+  GET    /users/me 🔒
+  PUT    /users/me 🔒
+  POST   /users                     (đăng ký — public)
+  DELETE /users/me 🔒               → 403
 
 PROFILE  (luôn /me, không DELETE)
-  GET    /api/profiles/me 🔒
-  PUT    /api/profiles/me 🔒
+  GET    /profiles/me 🔒
+  PUT    /profiles/me 🔒
 
 PROJECT
-  GET    /api/projects                  (public, hidden=0)
-  GET    /api/projects/me 🔒            (kể cả hidden)
-  GET    /api/projects/:id              (public nếu không hidden)
-  POST   /api/projects 🔒
-  PUT    /api/projects/:id 🔒           (owner only)
-  DELETE /api/projects/:id 🔒           (owner only, hard)
-  POST   /api/projects/:id/hide 🔒      (admin only)
-  POST   /api/projects/:id/unhide 🔒    (admin only)
+  GET    /projects                  (public, hidden=0)
+  GET    /projects/me 🔒            (kể cả hidden)
+  GET    /projects/:id              (public nếu không hidden)
+  POST   /projects 🔒
+  PUT    /projects/:id 🔒           (owner only)
+  DELETE /projects/:id 🔒           (owner only, hard)
+  POST   /projects/:id/hide 🔒      (admin only)
+  POST   /projects/:id/unhide 🔒    (admin only)
 
 COMMENT
-  GET    /api/projects/:id/comments
-  POST   /api/projects/:id/comments 🔒
-  PUT    /api/comments/:id 🔒           (author only)
-  DELETE /api/comments/:id 🔒           (author only, hard)
-  POST   /api/comments/:id/hide 🔒      (project owner / admin)
-  POST   /api/comments/:id/unhide 🔒    (project owner / admin)
+  GET    /projects/:id/comments
+  POST   /projects/:id/comments 🔒
+  PUT    /comments/:id 🔒           (author only)
+  DELETE /comments/:id 🔒           (author only, hard)
+  POST   /comments/:id/hide 🔒      (project owner / admin)
+  POST   /comments/:id/unhide 🔒    (project owner / admin)
 
 OTP
-  POST   /api/otp/request 🔒            (body: { password })  ← cần password
-  POST   /api/otp/verify                (body: { token, otp }) ← public
-  GET    /api/otp/me 🔒
-  DELETE /api/otp/:id 🔒                (owner only)
+  POST   /otp/request 🔒            (body: { password })  ← cần password
+  POST   /otp/verify                (body: { token, otp }) ← public
+  GET    /otp/me 🔒
+  DELETE /otp/:id 🔒                (owner only)
 ```

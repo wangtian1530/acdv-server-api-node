@@ -159,6 +159,16 @@ class DBHandler {
     return publicUser(rows[0] || null);
   }
 
+  async getUserByEmail(email) {
+    await this.init();
+    const safe = assertSafeString(email, "email", { min: 1, max: 50 });
+    const rows = await this.db.query(
+      "SELECT id, username, password, avatar, email, `key_table`, token, active FROM `user` WHERE email = ? LIMIT 1",
+      [safe]
+    );
+    return rows[0] || null;
+  }
+
   async getUserByKeyTable(key_table) {
     await this.init();
     const safeKey = assertKeyTable(key_table);
@@ -230,7 +240,7 @@ class DBHandler {
       [safeId, safeId]
     );
     const user = rows[0];
-    if (!user || user.password !== hashed) return null;
+    if (!user || user.password !== hashed || String(user.active) !== "1") return null;
     return publicUser(user);
   }
 
@@ -547,10 +557,17 @@ class DBHandler {
     const o = assertSafeString(otp, "otp", { min: 1, max: 2 });
 
     const rows = await this.db.query(
-      "SELECT id, `key_table` FROM OTPAuthUser WHERE token = ? AND OTP = ? AND active = 1 ORDER BY id DESC LIMIT 1",
+      "SELECT id, `key_table`, CreatDateTimes FROM OTPAuthUser WHERE token = ? AND OTP = ? AND active = 1 ORDER BY id DESC LIMIT 1",
       [t, o]
     );
     if (!rows.length) return { ok: false, message: "OTP hoặc token không hợp lệ / đã dùng" };
+
+    const createdAt = rows[0].CreatDateTimes ? new Date(rows[0].CreatDateTimes) : new Date();
+    const ttlMs = 5 * 60 * 1000;
+    if (Date.now() - createdAt.getTime() > ttlMs) {
+      await this.db.query("UPDATE OTPAuthUser SET active = 0 WHERE id = ?", [rows[0].id]);
+      return { ok: false, message: "OTP đã hết hạn sau 5 phút" };
+    }
 
     await this.db.query("UPDATE OTPAuthUser SET active = 0 WHERE id = ?", [rows[0].id]);
     return { ok: true, id: rows[0].id };
