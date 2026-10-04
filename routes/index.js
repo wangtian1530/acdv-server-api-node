@@ -1,6 +1,7 @@
 // routes/index.js
 "use strict";
 
+const crypto = require("crypto");
 const HandlerRouting = require("../system/routing");
 const Method = require("../system/method");
 const config = require("../config");
@@ -30,6 +31,59 @@ function makeHandlers({ db, security, secured, handleWith }) {
 
   const ok  = (data, status = 200) => ({ status, data: { status: "success", ...data } });
   const err = (message, status = 400, extra = {}) => ({ status, data: { status: "error", message, ...extra } });
+  const pendingRegistrations = new Map();
+  const registrationTtlMs = config.security.otpTtlMs || 5 * 60 * 1000;
+
+  function deletePendingRegistration(token) {
+    const registration = pendingRegistrations.get(token);
+    if (registration?.expiresTimer) clearTimeout(registration.expiresTimer);
+    pendingRegistrations.delete(token);
+  }
+
+  function removeExpiredRegistrations() {
+    const now = Date.now();
+    for (const [token, registration] of pendingRegistrations) {
+      if (registration.expiresAt <= now) deletePendingRegistration(token);
+    }
+  }
+
+  async function verifyPendingRegistration({ body }) {
+    const { email, token, otp } = body || {};
+    if (!email || !token || !otp) return err("Thiếu email, token hoặc otp", 400);
+
+    removeExpiredRegistrations();
+    const registration = pendingRegistrations.get(String(token));
+    if (!registration) return err("Đăng ký không tồn tại hoặc OTP đã hết hạn", 400);
+    if (registration.email !== String(email).trim().toLowerCase()) {
+      return err("Email không khớp với mã OTP", 400);
+    }
+    if (registration.otp !== String(otp).trim()) {
+      registration.attempts += 1;
+      if (registration.attempts >= 5) deletePendingRegistration(String(token));
+      return err("OTP không hợp lệ", 400);
+    }
+    if (registration.verifying) return err("Yêu cầu xác minh đang được xử lý", 409);
+
+    registration.verifying = true;
+    try {
+      const user = await db.createUser({
+        username: registration.username,
+        password: registration.password,
+        email: registration.email,
+        avatar: "None",
+        token: "None",
+        active: "1",
+      });
+      deletePendingRegistration(String(token));
+      return ok({
+        message: "Đăng ký thành công — email đã được xác minh",
+        data: user,
+      }, 201);
+    } catch (e) {
+      registration.verifying = false;
+      return err(e.message, 400);
+    }
+  }
 
   /* ---------------------------------------------------------
    *  🔒 Lấy key_table từ session
@@ -79,6 +133,8 @@ function makeHandlers({ db, security, secured, handleWith }) {
         AUTH: [
           "POST /auth/login   (body: { username|email, password })",
           "POST /auth/logout  (header X-Session-Token)",
+          "POST /auth/register/request (username, password, email → RAM 5 phút; OTP ghi log)",
+          "POST /auth/register/verify  (email, token, otp → tạo user trong DB sau xác minh)",
           "GET  /auth/me      🔒",
         ],
         USER: [
@@ -129,97 +185,68 @@ function makeHandlers({ db, security, secured, handleWith }) {
     echo: ({ params }) => ok({ youSaid: params.msg }),
 
     /* ---------- USER ---------- */
-    createUser: async ({ body }) => {
-      try {
-        const payload = body || {};
-        const { otp, token, key_table: _drop, ...safe } = payload;
-
-        if (!otp || !token) {
-          return err("Đăng ký cần xác minh OTP qua email. Gửi otp + token từ /auth/register/request", 400);
-        }
-
-        const verified = await db.verifyOTPByToken(token, otp);
-        if (!verified.ok) return err(verified.message || "OTP không hợp lệ", 400);
-
-        const otpRow = await db.getOTPInternal(verified.id);
-        if (!otpRow) return err("Không tìm thấy mã OTP hợp lệ", 400);
-
-        const pendingUser = await db.getUserByKeyTable(otpRow.key_table);
-        if (!pendingUser) return err("Không tìm thấy tài khoản chờ kích hoạt", 404);
-        if (String(pendingUser.email || "").toLowerCase() !== String(safe.email || "").toLowerCase()) {
-          return err("Email không khớp với mã OTP", 400);
-        }
-
-        const user = await db.updateUser(pendingUser.id, {
-          username: safe.username ?? pendingUser.username,
-          password: safe.password ?? pendingUser.password,
-          email: safe.email ?? pendingUser.email,
-          avatar: safe.avatar ?? pendingUser.avatar,
-          active: "1",
-          token: "None",
-        });
-
-        return ok({ message: "Đăng ký thành công — email đã được xác minh", data: user }, 201);
-      } catch (e) { return err(e.message, 400); }
-    },
+    createUser: verifyPendingRegistration,
 
     requestRegisterOTP: async ({ body }) => {
       try {
-        const { username, password, email } = body || {};
-        if (!username || !password || !email) {
+        const { username: rawUsername, password, email: rawEmail } = body || {};
+        if (typeof rawUsername !== "string" || typeof password !== "string" || typeof rawEmail !== "string") {
+          return err("Username, password và email phải là chuỗi", 400);
+        }
+        const username = String(rawUsername || "").trim();
+        const email = String(rawEmail || "").trim().toLowerCase();
+        if (!username || !password.trim() || !email) {
           return err("Thiếu username, password hoặc email", 400);
         }
+        if (username.length > 50 || password.length > 255 || email.length > 50 || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+          return err("Username, password hoặc email không hợp lệ", 400);
+        }
 
-        const existingUser = await db.getUserByUsername(username).catch(() => null);
+        removeExpiredRegistrations();
+        const existingUser = await db.getUserByUsername(username);
         if (existingUser) return err("Username đã tồn tại", 409);
 
-        const byEmail = await db.getUserByEmail(email).catch(() => null);
-        if (byEmail && byEmail.active === "1") return err("Email đã tồn tại", 409);
+        const existingEmail = await db.getUserByEmail(email);
+        if (existingEmail) return err("Email đã tồn tại", 409);
 
-        const user = byEmail && byEmail.active === "0"
-          ? byEmail
-          : await db.createUser({ username, password, email, avatar: "None", token: "None", active: "0" });
+        for (const [pendingToken, registration] of pendingRegistrations) {
+          if (registration.username === username || registration.email === email) {
+            deletePendingRegistration(pendingToken);
+          } else if (registration.username === email || registration.email === username) {
+            return err("Username hoặc email đang được đăng ký", 409);
+          }
+        }
 
-        const result = await db.requestOTP(user.id, password, config.security.otpTtlMs || 5 * 60 * 1000);
+        const otp = String(crypto.randomInt(0, 1000000)).padStart(6, "0");
+        const token = `register_${crypto.randomBytes(32).toString("hex")}`;
+        const expiresAt = Date.now() + registrationTtlMs;
+        const registration = {
+          username,
+          password,
+          email,
+          otp,
+          expiresAt,
+          attempts: 0,
+          verifying: false,
+        };
+        registration.expiresTimer = setTimeout(() => deletePendingRegistration(token), registrationTtlMs);
+        if (registration.expiresTimer.unref) registration.expiresTimer.unref();
+        pendingRegistrations.set(token, registration);
+
+        // Development mode: khi chưa tích hợp email, OTP chỉ được in ở console server.
+        console.log(`[REGISTER OTP] email=${email} otp=${otp} expires_in=${Math.floor(registrationTtlMs / 1000)}s`);
         return ok({
-          message: "OTP xác minh email đã được gửi. Mã có hiệu lực 5 phút.",
+          message: "Yêu cầu đăng ký đã được tạo. Nhập OTP để xác minh; mã có hiệu lực 5 phút.",
           data: {
-            user_id: user.id,
             email,
-            otp: result.otp,
-            token: result.token,
-            expires_in: result.expiresIn,
+            token,
+            expires_in: Math.floor(registrationTtlMs / 1000),
           },
         }, 201);
       } catch (e) { return err(e.message, 400); }
     },
 
-    verifyRegisterOTP: async ({ body }) => {
-      try {
-        const { email, token, otp } = body || {};
-        if (!email || !token || !otp) {
-          return err("Thiếu email, token hoặc otp", 400);
-        }
-
-        const verified = await db.verifyOTPByToken(token, otp);
-        if (!verified.ok) return err(verified.message || "OTP không hợp lệ", 400);
-
-        const otpRow = await db.getOTPInternal(verified.id);
-        if (!otpRow) return err("Không tìm thấy OTP hợp lệ", 400);
-
-        const user = await db.getUserByKeyTable(otpRow.key_table);
-        if (!user) return err("Tài khoản chờ kích hoạt không tồn tại", 404);
-        if (String(user.email || "").toLowerCase() !== String(email).toLowerCase()) {
-          return err("Email không khớp với mã OTP", 400);
-        }
-
-        const updated = await db.updateUser(user.id, { active: "1", token: "None" });
-        return ok({
-          message: "Xác minh email thành công. Bạn có thể đăng nhập ngay.",
-          data: updated,
-        });
-      } catch (e) { return err(e.message, 400); }
-    },
+    verifyRegisterOTP: verifyPendingRegistration,
 
     getMyUser: async (ctx) => {
       try {

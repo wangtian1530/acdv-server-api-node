@@ -25,6 +25,8 @@ AUTH
   POST   /auth/login
   POST   /auth/logout
   GET    /auth/me 🔒
+  POST   /auth/register/request   (username, password, email → giữ tạm trong RAM 5 phút)
+  POST   /auth/register/verify    (email, token, otp → chỉ lúc này mới tạo user trong DB)
 
 USER  (chỉ /me)
   GET    /users/me 🔒

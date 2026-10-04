@@ -1,3 +1,22 @@
+## 📝 Đăng ký tài khoản — OTP tạm trong RAM
+
+1. Gửi `POST /auth/register/request` với `{ "username", "password", "email" }`.
+2. Server giữ thông tin đăng ký và OTP trong RAM tối đa 5 phút; chưa tạo user trong database.
+3. Khi chưa cấu hình gửi email, OTP được in ở console/log của server. Response chỉ trả `email`, `token` và `expires_in`.
+4. Gửi `POST /auth/register/verify` với `{ "email", "token", "otp" }`.
+5. Chỉ sau khi OTP hợp lệ, tài khoản `active: "1"` mới được tạo trong database. OTP sai, hết hạn hoặc token không hợp lệ sẽ không tạo user.
+
+Ví dụ response yêu cầu đăng ký:
+```json
+{
+  "status": "success",
+  "message": "Đã tạo đăng ký tạm. Nhập OTP trong log server để xác minh; mã có hiệu lực 5 phút.",
+  "data": { "email": "user@example.com", "token": "register_...", "expires_in": 300 }
+}
+```
+
+> Lưu ý: dữ liệu đăng ký trong RAM sẽ mất khi server khởi động lại. OTP hiện chỉ ghi log để phát triển; không dùng cách này cho production.
+
 ## 🔐 OTP — Flow mới (password → temp token)
 
 ### Request OTP (cần password)
